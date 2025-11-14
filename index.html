@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Formatador de Artigos</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main class="container">
+    <h1>Formatador de Artigos</h1>
+
+    <!-- Etapa 1: Upload -->
+    <div class="section" id="upload-section">
+      <label for="fileInput" class="btn">Selecione o seu arquivo Doc (Word)</label>
+      <input type="file" id="fileInput" accept=".doc,.docx" hidden />
+    </div>
+
+    <!-- Etapa 2: Processamento -->
+    <div class="section hidden" id="processing-section">
+      <div class="filename" id="fileName"></div>
+      <button class="btn" id="processButton">Formatar arquivo para os padrões ABNT</button>
+      <p class="info-text">
+        Ao clicar no botão, o sistema aplica automaticamente a formatação do arquivo conforme as normas ABNT.
+      </p>
+    </div>
+
+    <!-- Etapa 3: Resultado -->
+    <div class="section hidden" id="result-section">
+      <h2 id="fileNameResult"></h2>
+
+      <p class="loading" id="loadingMessage">Aguarde um momento...</p>
+
+      <h3>Análise das Margens</h3>
+      <div id="analise-margens" class="status-text"></div>
+
+      <h3>Análise da Formatação</h3>
+      <div id="analise-formatacao" class="status-text"></div>
+
+      <button class="btn download-btn" id="downloadButton">
+        📥 Baixar arquivo já formatado (.docx)
+      </button>
+
+      <button class="btn secondary" id="resetButton">Selecionar outro arquivo 🔄</button>
+    </div>
+  </main>
+
+  <script src="script.js"></script>
+</body>
+</html>

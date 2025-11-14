@@ -1,0 +1,98 @@
+body {
+  background-color: #000;
+  color: #ffd700;
+  font-family: Arial, Helvetica, sans-serif;
+  text-align: center;
+  margin: 0;
+  padding: 0;
+}
+
+.container {
+  max-width: 600px;
+  margin: 5% auto;
+  padding: 20px;
+}
+
+h1 {
+  font-size: 1.8rem;
+  margin-bottom: 30px;
+}
+
+.btn {
+  display: inline-block;
+  background-color: #ffd700;
+  color: #000;
+  padding: 18px 25px;
+  margin-top: 20px;
+  font-size: 1.2rem;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: transform 0.2s, background 0.3s;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.btn:hover {
+  background-color: #ffea00;
+  transform: scale(1.03);
+}
+
+.secondary {
+  background-color: #333;
+  color: #ffd700;
+}
+
+.secondary:hover {
+  background-color: #444;
+}
+
+.hidden {
+  display: none;
+}
+
+.filename {
+  background-color: #ffd700;
+  color: #000;
+  padding: 15px;
+  border-radius: 12px;
+  margin-bottom: 20px;
+  font-size: 1.1rem;
+}
+
+.loading {
+  background-color: #ffd700;
+  color: #000;
+  padding: 18px;
+  border-radius: 12px;
+  margin: 20px 0;
+  font-size: 1.2rem;
+  font-weight: bold;
+}
+
+.status-text {
+  font-size: 0.8rem;
+  margin-top: 10px;
+}
+
+.error {
+  color: red;
+}
+
+.success {
+  color: green;
+}
+
+.info-text {
+  font-size: 0.75rem;
+  color: #ffd700;
+  margin-top: 8px;
+}
+
+.download-btn {
+  margin-top: 25px;
+}
+
+.correto { color: #2b8a3e; /* verde */ }
+.erro { color: #d00000; /* vermelho */ }
+.aviso { color: #f0aa00; /* amarelo */ }
