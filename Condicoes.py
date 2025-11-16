@@ -72,3 +72,55 @@ palavras_orientador = [
     "orientador", "orientadora", "professor", "professora", 
     "mestre", "mestra", "doutor", "doutora", "dr.", "dra."
 ]
+
+cursos = [
+    "curso", "bacharelado", "licenciatura", "tecnólogo", "tecnologo",
+    # cursos mais comuns
+    "sistemas de informação", "sistemas de informacao", "ciência da computação",
+    "ciencia da computacao", "engenharia", "engenharia de software",
+    "administração", "administracao", "direito", "enfermagem", "psicologia",
+    "ciências contábeis", "ciencias contabeis", "serviço social", "servico social",
+    "administração", "direito", "enfermagem", "psicologia", "pedagogia",
+    "educação física", "medicina", "fisioterapia", "odontologia",
+    "farmácia", "nutrição", "biomedicina", "biologia", "ciências biológicas",
+    "ciência da computação", "sistemas de informação", "engenharia civil",
+    "engenharia elétrica", "engenharia mecânica", "engenharia de produção",
+    "engenharia ambiental", "engenharia química", "engenharia de alimentos",
+    "engenharia de materiais", "engenharia de controle e automação",
+    "engenharia mecatrônica", "engenharia computacional", "engenharia de software",
+    "arquitetura e urbanismo", "matemática", "estatística", "física",
+    "geografia", "geologia", "química", "química industrial",
+    "economia", "ciências contábeis", "ciências sociais", "comunicação social",
+    "jornalismo", "publicidade e propaganda", "relações internacionais",
+    "serviço social", "turismo", "logística", "gestão de pessoas",
+    "gestão ambiental", "marketing", "design gráfico", "design de interiores",
+    "fashion design", "moda", "ciência de dados", "inteligência artificial",
+    "engenharia de telecomunicações", "engenharia aeroespacial", "engenharia biomédica",
+    "psicopedagogia", "história", "filosofia", "letras", "pedagogia",
+    "educação física licenciatura", "educação infantil", "pedagogia empresarial"
+]
+
+instituicao = [
+    # Federais
+    "universidade federal", "ufba", "ufmg", "ufsc", "ufpr", "ufrj", "ufes",
+    "ufma", "ufpa", "ufpe", "ufpb", "ufrn", "ufc", "ufpel", "ufop",
+
+    # Estaduais
+    "universidade estadual", "uefs", "uesb", "uesc", "unesp", "unicamp",
+    "usp",
+
+    # Particulares grandes
+    "estácio", "estacio", "unifacs", "unifacs", "pitágoras", "pitagoras",
+    "cruzeiro do sul", "anhanguera", "unip", "unime", "unijorge",
+    "unifor", "unisuam", "unit",
+
+    # Centros universitários
+    "centro universitário", "centro universitario", "unex", "unicep",
+    "uniesp", "uniruy", "unef", "fametro",
+
+    # Faculdades
+    "faculdade", "instituto", "senac", "senai", "fam", "fatec",
+
+    # Outras palavras que identificam instituição
+    "fundação", "fundacao", "escola superior"
+]
