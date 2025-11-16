@@ -50,8 +50,7 @@ processButton.addEventListener('click', () => {
     return response.json();
   })
   .then(data => {
-    // Exibir resultados mantendo ícones e classes
-    // Margens
+    console.log("💬 RECEBIDO DO PYTHON:", data);  // DEBUG
     const margensEl = document.getElementById("analise-margens");
     if (data.margens_corretas !== undefined) {
       margensEl.innerHTML = data.margens_corretas
