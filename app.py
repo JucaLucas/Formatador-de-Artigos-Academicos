@@ -1,11 +1,10 @@
 from flask import Flask, request, send_file
 from flask_cors import CORS
 from docx import Document
-from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.shared import Pt, Cm
+from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_COLOR_INDEX
+from docx.shared import Pt, Cm, RGBColor
 from docx.oxml.ns import qn
 import tempfile
-from docx.shared import RGBColor
 import re
 from Condicoes import cidades_bahia, palavras_orientador, cursos, instituicao
 import unicodedata
@@ -366,30 +365,55 @@ def normalizar(texto):
     return texto
 
 
-from docx.shared import Pt, RGBColor
-from docx.enum.text import WD_ALIGN_PARAGRAPH
-
 def formatar_capa(doc):
     """
-    Reconstrói e formata a área da capa na ordem:
-    Instituição (opcional), Curso (opcional), Autor, Título,
-    Subtítulo (opcional), Local, Ano.
+    Analisa os parágrafos após o resumo (sem formatar nada) e depois
+    reconstrói apenas a capa na ordem ABNT.
+
+    A análise verifica:
+    - Parágrafos devem ser JUSTIFICADOS
+    - Títulos de seções devem ser alinhados À ESQUERDA
     """
 
-    # encontra índice do primeiro parágrafo que começa com "resumo"
+    avisos = []  # lista que será retornada ao final
+
+    # ---------------------------------------------------------
+    # 1) ENCONTRAR O RESUMO
+    # ---------------------------------------------------------
     index_resumo = None
     for idx, p in enumerate(doc.paragraphs):
         if p.text and p.text.strip().lower().startswith("resumo"):
             index_resumo = idx
             break
+
     limite = index_resumo if index_resumo is not None else len(doc.paragraphs)
 
-    # monta lista de textos originais (apenas da região da capa)
+    # ---------------------------------------------------------
+    # 2) FAZER ANÁLISE ABNT *ANTES* DE FORMATAR A CAPA
+    # ---------------------------------------------------------
+    if index_resumo is not None:
+        for idx in range(index_resumo + 1, len(doc.paragraphs)):
+            p = doc.paragraphs[idx]
+            texto = p.text.strip()
+
+            if not texto:
+                continue
+
+            # Detecta SEÇÕES — ABNT exige alinhamento à esquerda
+            if texto.isupper() and len(texto.split()) <= 6:
+                if p.alignment != WD_ALIGN_PARAGRAPH.LEFT:
+                    avisos.append(f"A seção '{texto}' deve ser alinhada à esquerda.")
+                continue
+
+            # ANALISAR PARÁGRAFOS COMUNS (devem ser justificados)
+            if p.alignment != WD_ALIGN_PARAGRAPH.JUSTIFY:
+                avisos.append(f"O parágrafo '{texto[:40]}...' deve ser justificado.")
+
+    # ---------------------------------------------------------
+    # 3) CAPTURA DA CAPA (PARTE EXISTENTE DO SEU CÓDIGO)
+    # ---------------------------------------------------------
     linhas = [p.text for p in doc.paragraphs[:limite]]
 
- 
-
-    # usa a função existente que retorna índices identificados
     try:
         identificados_indices = identificar_linhas_da_capa(doc)
     except Exception:
@@ -404,7 +428,6 @@ def formatar_capa(doc):
             else:
                 identificados_indices[chave] = None
 
-    # extrai texto conforme índices
     def txt(idx):
         return linhas[idx].strip() if (idx is not None and 0 <= idx < len(linhas) and linhas[idx].strip()) else None
 
@@ -416,35 +439,32 @@ def formatar_capa(doc):
     cidade_txt = txt(identificados_indices.get("cidade"))
     ano_txt = txt(identificados_indices.get("ano"))
 
-    # fallback para título
+    # fallbacks
     if not titulo_txt:
-        for i, l in enumerate(linhas):
+        for l in linhas:
             if l and eh_titulo(l, False)[0]:
                 titulo_txt = l.strip()
                 break
 
-    # fallback autor
     if not autor_txt:
         for l in linhas:
             if l and eh_autor(l):
                 autor_txt = l.strip()
                 break
 
-    # fallback ano
     if not ano_txt:
         for l in linhas:
             if l and eh_ano(l):
                 ano_txt = l.strip()
                 break
 
-    # fallback cidade
     if not cidade_txt:
         for l in linhas:
             if l and eh_cidade(l):
                 cidade_txt = l.strip()
                 break
 
-    # monta lista final ordenada
+    # monta ordem
     capa_ordem = []
     if inst_txt:
         capa_ordem.append(("instituicao", inst_txt))
@@ -461,26 +481,24 @@ def formatar_capa(doc):
     if ano_txt:
         capa_ordem.append(("ano", ano_txt))
 
-
     novos_pares = []
     usados = set()
-
     for tipo, texto in capa_ordem:
         if texto not in usados:
             novos_pares.append((tipo, texto))
             usados.add(texto)
 
     capa_ordem = novos_pares
-    # ---------------------------------------------------------
 
-    # encontra primeiro parágrafo não vazio
+    # ---------------------------------------------------------
+    # 4) FORMATAÇÃO DA CAPA (NÃO ALTERADA)
+    # ---------------------------------------------------------
     first_idx = 0
     for idx in range(limite):
         if doc.paragraphs[idx].text.strip():
             first_idx = idx
             break
 
-    # aplica formatação
     for offset, (tipo, texto) in enumerate(capa_ordem):
         target_idx = first_idx + offset
         p = doc.paragraphs[target_idx]
@@ -492,19 +510,20 @@ def formatar_capa(doc):
             run.bold = False
 
         if tipo == "titulo_capa":
-            texto_titulo = p.text  # mantém o texto ORIGINAL
-            p.text = ""            # limpa
-
-            run = p.add_run(texto_titulo.upper())  # exibe em MAIÚSCULO só no DOCX
+            original = p.text
+            p.text = ""
+            run = p.add_run(original.upper())
             run.font.size = Pt(14)
             run.bold = True
 
-
-    # limpa o restante
     start_clean = first_idx + len(capa_ordem)
     for idx in range(start_clean, limite):
         doc.paragraphs[idx].text = ""
 
+    # ---------------------------------------------------------
+    # 5) RETORNA OS AVISOS AO USUÁRIO
+    # ---------------------------------------------------------
+    return avisos
 
 
 # -----------------------------------------------------------
@@ -692,88 +711,138 @@ def classificar_texto(texto, titulo_identificado):
 
 def formatar_resumo(doc):
     """
-    Formata o bloco de RESUMO:
-    - RESUMO em uppercase, centralizado e negrito
-    - Texto do resumo fica logo abaixo (justificado)
-    - Não apaga texto existente inadvertidamente
+    Formata o bloco de RESUMO e retorna mensagens indicando
+    se a formatação está ABNT ou se há erros.
+
+    Regras verificadas:
+    - Título "RESUMO": maiúsculo, negrito, centralizado, fonte 12
+    - Texto do resumo: logo abaixo, fonte 12, alinhado justificado
     """
+
+    mensagens = []
+
     for i, p in enumerate(doc.paragraphs):
         original = (p.text or "").strip()
         if not original:
             continue
 
-        
+        # -----------------------------------------------------------
+        # Detecta o parágrafo que contém RESUMO
+        # -----------------------------------------------------------
         if original.lower().startswith("resumo"):
-            # detecta conteúdo depois de ":" ou "RESUMO " (mesma linha)
+
+            # ---------------------------------
+            # 1) Conteúdo na mesma linha (ex: "RESUMO: texto...")
+            # ---------------------------------
             conteudo_mesma_linha = ""
             if ":" in original:
                 partes = original.split(":", 1)
-                # título (antes do :) é descartado — colocamos "RESUMO"
                 conteudo_mesma_linha = partes[1].strip()
 
-            # Se houver conteúdo na mesma linha, vamos inseri-lo abaixo
-            if conteudo_mesma_linha:
-                # formata o título (parágrafo atual)
-                p.text = ""
-                run = p.add_run("RESUMO")
-                run.bold = True
-                p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-
-                # insere parágrafo depois do atual:
-                # se existe próximo parágrafo -> insere antes dele (que é "after" do atual)
-                if i + 1 < len(doc.paragraphs):
-                    doc.paragraphs[i + 1].insert_paragraph_before(conteudo_mesma_linha)
-                    # o parágrafo inserido está agora em doc.paragraphs[i+1]
-                    inserted = doc.paragraphs[i + 1]
-                    inserted.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-                else:
-                    # não há próximo: adiciona no fim
-                    newp = doc.add_paragraph(conteudo_mesma_linha)
-                    newp.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-
-                return  # feito — assume apenas um bloco RESUMO
-
-            # Se não há conteúdo na mesma linha, tenta usar o parágrafo seguinte
-            # SEM apagar: só formatamos o parágrafo seguinte como JUSTIFY
-            if i + 1 < len(doc.paragraphs) and doc.paragraphs[i + 1].text.strip():
-                p.text = ""
-                run = p.add_run("RESUMO")
-                run.bold = True
-                p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-
-                next_para = doc.paragraphs[i + 1]
-                next_para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-                # opcional: ajusta tamanho de fonte dos runs do resumo
-                for run in p.runs:
-                    try:
-                        run.font.size = Pt(12)
-                    except:
-                        pass
-                for run in next_para.runs:
-                    try:
-                        run.font.size = Pt(12)
-                    except:
-                        pass
-                return
-
-            # Caso não exista conteúdo em mesma linha nem no próximo parágrafo,
-            # apenas transforma a linha atual em título "RESUMO" e adiciona um parágrafo vazio abaixo.
+            # ============================================================
+            # FORMATAÇÃO DO TÍTULO "RESUMO"
+            # ============================================================
             p.text = ""
             run = p.add_run("RESUMO")
             run.bold = True
+            run.font.size = Pt(12)
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            if i + 1 < len(doc.paragraphs):
-                # deixa o próximo parágrafo vazio (não apaga textos que existam)
-                # mas somente se estiver vazio; senão criamos um novo parágrafo vazio
-                if not doc.paragraphs[i + 1].text.strip():
-                    doc.paragraphs[i + 1].alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-                else:
-                    newp = doc.paragraphs[i + 1].insert_paragraph_before("")
-                    newp.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+
+            # Validação do título
+            erros_titulo = []
+
+            if run.text != "RESUMO":
+                erros_titulo.append("Título não está exatamente como 'RESUMO'.")
+
+            if not run.bold:
+                erros_titulo.append("Título 'RESUMO' deve estar em negrito.")
+
+            if p.alignment != WD_ALIGN_PARAGRAPH.CENTER:
+                erros_titulo.append("Título 'RESUMO' deve estar centralizado.")
+
+            if not run.font.size or run.font.size.pt != 12:
+                erros_titulo.append("Título 'RESUMO' deve ter fonte tamanho 12.")
+
+            if erros_titulo:
+                mensagens.append("❌ Erros no título RESUMO: " + " | ".join(erros_titulo))
             else:
-                newp = doc.add_paragraph("")
-                newp.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-            return
+                mensagens.append("✅ Título RESUMO formatado corretamente.")
+
+            # ============================================================
+            # 2) Se havia conteúdo depois do ":" → inserir abaixo
+            # ============================================================
+            if conteudo_mesma_linha:
+                if i + 1 < len(doc.paragraphs):
+                    doc.paragraphs[i + 1].insert_paragraph_before(conteudo_mesma_linha)
+                    texto_para = doc.paragraphs[i + 1]
+                else:
+                    texto_para = doc.add_paragraph(conteudo_mesma_linha)
+
+                texto_para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+
+                # validação do texto
+                erros_texto = []
+                for r in texto_para.runs:
+                    if not r.font.size or r.font.size.pt != 12:
+                        erros_texto.append("Texto do resumo deve ter fonte 12.")
+                        break
+
+                if texto_para.alignment != WD_ALIGN_PARAGRAPH.JUSTIFY:
+                    erros_texto.append("Texto do resumo deve estar justificado.")
+
+                if erros_texto:
+                    mensagens.append("❌ Erros no texto do resumo: " + " | ".join(erros_texto))
+                else:
+                    mensagens.append("✅ Texto do resumo formatado corretamente.")
+
+                return mensagens
+
+            # ============================================================
+            # 3) Resumo dividido em linha seguinte
+            # ============================================================
+            if i + 1 < len(doc.paragraphs) and doc.paragraphs[i + 1].text.strip():
+                texto_para = doc.paragraphs[i + 1]
+                texto_para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+
+                # padroniza tamanho da fonte
+                for run2 in texto_para.runs:
+                    run2.font.size = Pt(12)
+
+                # validação
+                erros_texto = []
+                if texto_para.alignment != WD_ALIGN_PARAGRAPH.JUSTIFY:
+                    erros_texto.append("Texto do resumo deve estar justificado.")
+
+                if any((r.font.size and r.font.size.pt != 12) for r in texto_para.runs):
+                    erros_texto.append("Texto do resumo deve ter fonte tamanho 12.")
+
+                if erros_texto:
+                    mensagens.append("❌ Erros no texto do resumo: " + " | ".join(erros_texto))
+                else:
+                    mensagens.append("✅ Texto do resumo formatado corretamente.")
+
+                return mensagens
+
+            # ============================================================
+            # 4) Caso não exista texto do resumo → cria um parágrafo
+            # ============================================================
+            if i + 1 < len(doc.paragraphs):
+                if not doc.paragraphs[i + 1].text.strip():
+                    texto_para = doc.paragraphs[i + 1]
+                else:
+                    texto_para = doc.paragraphs[i + 1].insert_paragraph_before("")
+            else:
+                texto_para = doc.add_paragraph("")
+
+            texto_para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+
+            mensagens.append("⚠️ O resumo estava vazio — criado parágrafo para preenchimento.")
+
+            return mensagens
+
+    # caso nenhum resumo seja encontrado
+    mensagens.append("⚠️ Nenhum bloco de RESUMO encontrado no documento.")
+    return mensagens
 
 def formatar_abstract(doc):
     """
@@ -922,6 +991,7 @@ def formatar_palavras_chave(doc):
             return
 
 def formatar_keywords(doc):
+    
     """
     Identifica e formata 'Keywords:' no documento:
     - deixa o título em negrito e capitalizado
@@ -990,6 +1060,218 @@ def formatar_keywords(doc):
 
             return
 
+def formatar_titulos_numerados(doc):
+    import re
+    from docx.shared import Pt
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+    padrao = r"""
+        ^\s*
+        (\d+(\.\d+)*)   # 1 , 1.1 , 1.1.1 etc
+        \s*\.?\s*
+        [A-Za-zÀ-ÿ]     # precisa começar com letra depois do número
+    """
+    eh_titulo = lambda t: re.match(padrao, t.strip(), re.VERBOSE) is not None
+
+    depois_do_resumo = False
+
+    for p in doc.paragraphs:
+        texto_original = p.text.strip()
+
+        if not texto_original:
+            continue
+
+        if re.match(r"^\s*resumo\b", texto_original, re.IGNORECASE):
+            depois_do_resumo = True
+            continue
+
+        if not depois_do_resumo:
+            continue
+
+        if eh_titulo(texto_original):
+
+            print(f"[DEBUG] Título numerado detectado: {texto_original}")
+
+            match = re.match(r"^(\d+(?:\.\d+)*)(?:\.)?\s*(.*)$", texto_original)
+            if not match:
+                continue
+
+            numeracao = match.group(1)
+            titulo_texto = match.group(2)
+
+            nivel = numeracao.count(".") + 1
+
+            if nivel == 1:
+                titulo_formatado = titulo_texto.upper()
+            else:
+                if len(titulo_texto) > 0:
+                    titulo_formatado = titulo_texto[0].upper() + titulo_texto[1:].lower()
+                else:
+                    titulo_formatado = titulo_texto
+
+            novo_texto = f"{numeracao} {titulo_formatado}"
+
+            p.text = novo_texto
+
+            p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+            for run in p.runs:
+                run.font.bold = True
+                run.font.size = Pt(12)
+                # cor removida
+
+def formatar_paragrafos_abnt(doc):
+
+    mensagens = []
+    depois_do_resumo = False
+
+    padrao_titulo = r"^\s*\d+(\.\d+)*\s*[\).]?\s*[A-Za-zÀ-ÿ]"
+
+    def eh_titulo(t):
+        return re.match(padrao_titulo, t.strip()) is not None
+
+    for p in doc.paragraphs:
+        texto = p.text.strip()
+        if not texto:
+            continue
+
+        if re.match(r"^\s*resumo\b", texto, re.IGNORECASE):
+            depois_do_resumo = True
+            continue
+
+        if not depois_do_resumo:
+            continue
+
+        if eh_titulo(texto):
+            continue
+
+        p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+        p.paragraph_format.first_line_indent = Pt(1.25 * 10)
+        p.paragraph_format.space_after = Pt(6)
+        p.paragraph_format.line_spacing = 1.5
+
+        for run in p.runs:
+            run.font.size = Pt(12)
+            run.font.bold = False
+            # cor removida
+
+        erros = []
+
+        if p.alignment != WD_ALIGN_PARAGRAPH.JUSTIFY:
+            erros.append("alinhamento incorreto (esperado: justificado)")
+
+        recuo = p.paragraph_format.first_line_indent
+        if not recuo or abs(recuo.cm - 1.25) > 0.05:
+            erros.append("recuo incorreto (esperado: 1,25 cm)")
+
+        if p.paragraph_format.space_after != Pt(6):
+            erros.append("espaçamento depois incorreto (esperado: 6pt)")
+
+        if p.paragraph_format.line_spacing != 1.5:
+            erros.append("espaçamento de linha incorreto (esperado: 1,5)")
+
+        for run in p.runs:
+            if run.font.size and run.font.size.pt != 12:
+                erros.append("tamanho da fonte errado (esperado: 12)")
+                break
+
+        if erros:
+            mensagens.append(f"❌ Parágrafo incorreto: \"{texto[:50]}...\" → " + " | ".join(erros))
+        else:
+            mensagens.append(f"✅ Parágrafo OK: \"{texto[:50]}...\"")
+
+    return mensagens
+
+def formatar_referencias(doc):
+    import re
+    from docx.shared import Pt
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    import unicodedata
+
+    try:
+        normalizar = lambda s: remover_acentos(s or "").strip().lower()
+    except NameError:
+        def normalizar(s):
+            if not s:
+                return ""
+            s = ''.join(c for c in unicodedata.normalize('NFD', s)
+                        if unicodedata.category(c) != 'Mn')
+            s = s.lower().strip()
+            s = re.sub(r'\s+', ' ', s)
+            return s
+
+    padrao_titulo = re.compile(r"^\s*\d*\.?\s*REFERÊNCIAS\s*$", re.IGNORECASE)
+
+    inicio_idx = None
+    for i, p in enumerate(doc.paragraphs):
+        texto_norm = " ".join(p.text.upper().split())
+        if padrao_titulo.match(texto_norm):
+            inicio_idx = i + 1
+            break
+
+    if inicio_idx is None:
+        return
+
+    def eh_titulo_numerado(texto):
+        return bool(re.match(r"^\s*\d+(\.\d+)*\s+[A-Za-zÀ-ÿ]", texto))
+
+    ano_re = re.compile(r"\b(19|20)\d{2}\b")
+
+    def eh_referencia(t):
+        if not t or len(t) < 8:
+            return False
+
+        tn = normalizar(t)
+        pontos = 0
+
+        if "http" in tn or "doi" in tn:
+            pontos += 2
+
+        if ano_re.search(t):
+            pontos += 1
+
+        palavras_comuns = [
+            "disponivel em", "acesso em", "editora", "vol", "v.", "n.",
+            "nbr", "issn", "isbn", "revista", "congresso", "artigo",
+            "tecnologia da informação", "internet", "pesquisa", "relatório"
+        ]
+        if any(k in tn for k in palavras_comuns):
+            pontos += 1
+
+        if re.search(r"[A-Za-zÀ-ÿ ]+:\s*[A-Za-zÀ-ÿ ]+", t):
+            pontos += 1
+
+        if re.match(r"^[A-Z]{2,}\b", t):
+            pontos += 1
+
+        if re.match(r"^[A-ZÀ-Ý]{2,}\s*,", t):
+            pontos += 1
+
+        return pontos >= 1.5
+
+    for p in doc.paragraphs[inicio_idx:]:
+
+        texto = p.text.strip()
+        if not texto:
+            continue
+
+        if eh_titulo_numerado(texto):
+            break
+
+        if eh_referencia(texto):
+
+            p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+            p.paragraph_format.line_spacing = 1.0
+            p.paragraph_format.space_after = Pt(6)
+
+            p.paragraph_format.first_line_indent = Pt(0)
+            p.paragraph_format.left_indent = Pt(1.25 * 28.35)
+
+            for run in p.runs:
+                run.font.size = Pt(12)
+                run.font.bold = False
+                # cor removida
+
+
 
 # -------- APLICAR FORMATAÇÃO --------
 from docx.shared import Pt, Cm
@@ -998,44 +1280,57 @@ from docx.oxml.ns import qn
 import re
 
 def aplicar_formatacao(doc, fonte_principal):
-    from docx.shared import Pt, RGBColor
-    from docx.oxml.ns import qn
-    from docx.enum.text import WD_ALIGN_PARAGRAPH
-    import re
+    """
+    Aplica formatação visual (temporária/colorida) aos elementos da CAPA
+    antes do resumo, apenas para facilitar depuração.
 
-    # ---------- 1. Define a fonte padrão ----------
+    Itens identificados:
+        - instituição  (verde)
+        - autor        (azul)
+        - orientador   (magenta)
+        - curso        (laranja)
+        - título       (verde escuro)
+        - subtítulo    (roxo)
+        - cidade       (ciano)
+        - ano          (cinza)
+    """
+
+    # ==============================================
+    # 1) Garantir fonte padrão
+    # ==============================================
     for p in doc.paragraphs:
         for run in p.runs:
             run.font.name = fonte_principal
             try:
-                r = run._element.rPr.rFonts
-                r.set(qn("w:ascii"), fonte_principal)
-                r.set(qn("w:hAnsi"), fonte_principal)
+                rFonts = run._element.rPr.rFonts
+                rFonts.set(qn("w:ascii"), fonte_principal)
+                rFonts.set(qn("w:hAnsi"), fonte_principal)
             except:
                 pass
 
     antes_do_resumo = True
     titulo_identificado = False
 
-    # ---------- 2. Flags de controle (só permite 1 de cada) ----------
-    encontrado = {
-        "instituicao": False,
-        "autor": False,
-        "orientador": False,
-        "curso": False,
-        "titulo_capa": False,
-        "subtitulo": False,
-        "cidade": False,
-        "ano": False,
-    }
+    # ==============================================
+    # 2) Flags para cada item da capa
+    # ==============================================
+    encontrado = {k: False for k in [
+        "instituicao", "autor", "orientador", "curso",
+        "titulo_capa", "subtitulo", "cidade", "ano"
+    ]}
 
-    # ---------- 3. Loop de formatação ----------
+    # Paleta para depuração
+
+    # ==============================================
+    # 3) Percorre documento até o resumo
+    # ==============================================
     for p in doc.paragraphs:
+
         texto = p.text.strip()
         if not texto:
             continue
 
-        # Interrompe antes do resumo
+        # Parou ao encontrar o resumo
         if re.match(r"^\s*resumo\b", texto, re.IGNORECASE):
             antes_do_resumo = False
             continue
@@ -1043,228 +1338,141 @@ def aplicar_formatacao(doc, fonte_principal):
         if not antes_do_resumo:
             continue
 
+        # Classificação
         tipo, titulo_identificado = classificar_texto(texto, titulo_identificado)
-        print(f"[DEBUG] Linha analisada: '{texto}'")
+        print(f"[DEBUG] Linha: '{texto}'")
         print(f"[DEBUG] Tipo detectado: {tipo}")
 
-        # ---------- INSTITUIÇÃO ----------
-        if tipo == "instituicao" and not encontrado["instituicao"]:
-            encontrado["instituicao"] = True
-            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            for run in p.runs:
-                run.font.size = Pt(12)
-                run.font.color.rgb = RGBColor(0, 128, 0)
-            print("[DEBUG] Instituição formatada (verde)")
+        # Se for algo não reconhecido, ignora
+        if tipo not in encontrado:
             continue
 
-        # ---------- AUTOR ----------
-        if tipo == "autor" and not encontrado["autor"]:
-            encontrado["autor"] = True
-            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            for run in p.runs:
-                run.font.size = Pt(12)
-                run.font.color.rgb = RGBColor(0, 0, 255)
-            print("[DEBUG] Autor formatado (azul)")
+        # Garante que apenas o primeiro de cada tipo será formatado
+        if encontrado[tipo]:
             continue
 
-        # ---------- ORIENTADOR -----------
+        encontrado[tipo] = True
 
-        # ---------- ORIENTADOR ----------
-        if tipo == "orientador" and not encontrado.get("orientador", False):
-            encontrado["orientador"] = True
-            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            for run in p.runs:
-                run.font.size = Pt(12)
-                run.font.color.rgb = RGBColor(255, 0, 255)  # rosa / magenta
-                run.text = run.text.replace(":", "").strip().capitalize()
-            print("[DEBUG] Orientador formatado (magenta)")
-            continue
+        # ==========================================
+        # 4) Aplicação da cor e estilo
+        # ==========================================
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
 
-        # ---------- CURSO ----------
-        if tipo == "curso" and not encontrado["curso"]:
-            encontrado["curso"] = True
-            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            for run in p.runs:
-                run.font.size = Pt(12)
-                run.font.color.rgb = RGBColor(255, 128, 0)
-            print("[DEBUG] Curso formatado (laranja)")
-            continue
-
-        # ---------- TÍTULO ----------
-        if tipo == "titulo_capa" and not encontrado["titulo_capa"]:
-            encontrado["titulo_capa"] = True
-            p.text = p.text.upper()
-            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        # Ajustes especiais
+        if tipo == "titulo_capa":
+            p.text = texto.upper()
             for run in p.runs:
                 run.font.size = Pt(14)
                 run.bold = True
-                run.font.color.rgb = RGBColor(0, 153, 0)
-            print("[DEBUG] Título formatado (verde escuro)")
-            continue
 
-        # ---------- SUBTÍTULO ----------
-        if tipo == "subtitulo" and not encontrado["subtitulo"]:
-            encontrado["subtitulo"] = True
-            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        elif tipo == "cidade":
             for run in p.runs:
-                run.font.size = Pt(12)
-                run.bold = False
-                run.font.color.rgb = RGBColor(102, 0, 204)
-            print("[DEBUG] Subtítulo formatado (roxo)")
-            continue
+                run.text = " ".join(w.capitalize() for w in run.text.lower().split())
 
-        # ---------- CIDADE ----------
-        if tipo == "cidade" and not encontrado["cidade"]:
-            encontrado["cidade"] = True
-            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        elif tipo == "orientador":
             for run in p.runs:
-                run.font.size = Pt(12)
-                run.font.color.rgb = RGBColor(0, 255, 255)
-                run.text = " ".join([palavra.capitalize() for palavra in run.text.lower().split()])
-            print("[DEBUG] Cidade formatada (ciano)")
-            continue
+                run.text = run.text.replace(":", "").strip().capitalize()
 
-        # ---------- ANO ----------
-        if tipo == "ano" and not encontrado["ano"]:
-            encontrado["ano"] = True
-            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            for run in p.runs:
-                run.font.size = Pt(12)
-                run.font.color.rgb = RGBColor(128, 128, 128)
-            print("[DEBUG] Ano formatado (cinza)")
-            continue
+        print(f"[DEBUG] Formatação aplicada para: {tipo}")
+
+    # Fim da função
 
   
 # -------- VERIFICAR FORMATAÇÃO --------
 def verificar_formatacao(doc):
-    global ja_tem_autor, ja_tem_cidade, ja_tem_instituicao
-    global ja_tem_titulo_capa, ja_tem_curso, ja_tem_ano
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    import re
 
-    ja_tem_autor = False
-    ja_tem_cidade = False
-    ja_tem_instituicao = False
-    ja_tem_titulo_capa = False
-    ja_tem_curso = False
-    ja_tem_ano = False
+    erros = set()
 
-    erros = []
-    dentro_corpo = False
-    titulo_capa_verificado = False
-    subtitulo_capa_verificado = False
-    titulo_identificado = False
+    # --------------------------------------------
+    # 1. Padrão de detecção de TÍTULOS NUMERADOS
+    # --------------------------------------------
+    padrao_titulo = r"""
+        ^\s*
+        (\d+(\.\d+)*)       # 1 , 1.1 , 1.1.1 etc
+        \s*\.?\s*
+        [A-Za-zÀ-ÿ]         # letra após número
+    """
+    eh_titulo_numerado = lambda t: re.match(padrao_titulo, t.strip(), re.VERBOSE) is not None
 
+    # --------------------------------------------
+    # 2. Flags
+    # --------------------------------------------
+    dentro_corpo = False  # ativa somente após encontrar "RESUMO"
+
+    # --------------------------------------------
+    # 3. Percorre todo o documento
+    # --------------------------------------------
     for p in doc.paragraphs:
         texto = p.text.strip()
         if not texto:
             continue
 
-        tipo, titulo_identificado = classificar_texto(texto, titulo_identificado)
-
-        # ---------------------------
-        # TÍTULO DA CAPA
-        # ---------------------------
-        if tipo == "titulo_capa" and not titulo_capa_verificado:
-            titulo_capa_verificado = True
-            erros_local = []
-
-            tamanhos = {run.font.size.pt for run in p.runs if run.font.size}
-            if tamanhos and any(t != 14 for t in tamanhos):
-                erros_local.append(f"❌ O título da capa deve estar no tamanho 14 → \"{texto}\"")
-
-            if not any(run.bold for run in p.runs):
-                erros_local.append(f"⚠️ O título da capa deve estar em NEGRITO → \"{texto}\"")
-
-            if p.alignment != WD_ALIGN_PARAGRAPH.CENTER:
-                erros_local.append(f"⚠️ O título deve estar CENTRALIZADO → \"{texto}\"")
-
-            if texto != texto.upper():
-                erros_local.append(f"⚠️ O título deve estar TODO EM MAIÚSCULO → \"{texto}\"")
-
-            if not erros_local:
-                erros.append("✅ Título da capa está correto.")
-            else:
-                erros.extend(erros_local)
-
-            continue
-
-        # ---------------------------
-        # SUBTÍTULO DA CAPA
-        # ---------------------------
-        if tipo == "subtitulo" and not subtitulo_capa_verificado and not dentro_corpo:
-            subtitulo_capa_verificado = True
-            erros_local = []
-
-            tamanhos = {run.font.size.pt for run in p.runs if run.font.size}
-            if tamanhos and any(t != 12 for t in tamanhos):
-                erros_local.append(f"❌ O subtítulo da capa deve estar no tamanho 12 → \"{texto}\"")
-
-            if any(run.bold for run in p.runs):
-                erros_local.append(f"⚠️ O subtítulo não deve estar em negrito → \"{texto}\"")
-
-            if p.alignment != WD_ALIGN_PARAGRAPH.CENTER:
-                erros_local.append(f"⚠️ O subtítulo deve estar CENTRALIZADO → \"{texto}\"")
-
-            if texto == texto.upper():
-                erros_local.append(f"⚠️ O subtítulo não deve estar TODO EM MAIÚSCULO → \"{texto}\"")
-
-            if not erros_local:
-                erros.append("✅ Subtítulo da capa está correto.")
-            else:
-                erros.extend(erros_local)
-
-            continue
-
-        # ---------------------------
-        # DETECTA INÍCIO DO CORPO
-        # ---------------------------
-        if re.match(r'^\d+(\.\d+)*\s', texto):
+        # Detecta INÍCIO do corpo (após RESUMO)
+        if re.match(r"^\s*resumo\b", texto, re.IGNORECASE):
             dentro_corpo = True
+            continue
 
-        # ---------------------------
-        # IGNORA O RESTO DA CAPA
-        # ---------------------------
+        # Somente após o RESUMO
         if not dentro_corpo:
             continue
 
-        # ---------------------------
-        # TÍTULOS DO CORPO (titulos e subtitulos)
-        # ---------------------------
-        if tipo in ("titulo_principal", "subtitulo"):
-            erros_local = []
+        # --------------------------------------------
+        # 4. Sessão detectada (ex: 1 Introdução)
+        # --------------------------------------------
+        if eh_titulo_numerado(texto):
 
+            # Separa numeração e conteúdo
+            match = re.match(r"^(\d+(?:\.\d+)*)(?:\.)?\s*(.*)$", texto)
+            if not match:
+                continue
+
+            numeracao = match.group(1)
+            titulo_texto = match.group(2)
+
+            # Nível do título (1, 2, 3 etc)
+            nivel = numeracao.count(".") + 1
+
+            # — Tamanho da fonte
             tamanhos = {run.font.size.pt for run in p.runs if run.font.size}
-            if tamanhos and any(t != 12 for t in tamanhos):
-                erros_local.append(f"❌ Tamanho incorreto no título → \"{texto}\" (deve ser 12)")
+            if any(t != 12 for t in tamanhos):
+                erros.add(f"❌ A sessão '{texto}' deve estar no tamanho 12.")
 
-            if p.alignment != WD_ALIGN_PARAGRAPH.LEFT:
-                erros_local.append(f"⚠️ O título deve estar alinhado à esquerda → \"{texto}\"")
+            # — Alinhamento correto
+            if p.alignment not in (WD_ALIGN_PARAGRAPH.LEFT, None):
+                erros.add(f"⚠️ A sessão '{texto}' deve estar alinhada à esquerda.")
 
-            if not erros_local:
-                erros.append(f"✅ Título correto → \"{texto}\"")
-            else:
-                erros.extend(erros_local)
+            # — Regras de maiúscula
+            if nivel == 1 and titulo_texto != titulo_texto.upper():
+                erros.add(f"⚠️ Sessão de nível 1 '{texto}' deveria estar em MAIÚSCULO.")
 
-            continue
+            if nivel > 1 and titulo_texto == titulo_texto.upper():
+                erros.add(f"⚠️ Sessões de nível 2+ não devem ser totalmente maiúsculas: '{texto}'.")
 
-        # ---------------------------
-        # PARÁGRAFOS NORMAIS
-        # ---------------------------
-        erros_local = []
+            continue  # evita cair na análise de parágrafo
 
+        # --------------------------------------------
+        # 5. Parágrafos normais (somente após RESUMO)
+        # --------------------------------------------
+
+        # Verificar fonte
         tamanhos = {run.font.size.pt for run in p.runs if run.font.size}
-        if tamanhos and any(t != 12 for t in tamanhos):
-            erros_local.append(f"❌ Tamanho incorreto no parágrafo → \"{texto}\" (deve ser 12)")
+        if any(t != 12 for t in tamanhos):
+            erros.add("❌ Um parágrafo está no tamanho incorreto (deve ser 12).")
 
+        # Verificar alinhamento — mas ignorar None
         if p.alignment not in (WD_ALIGN_PARAGRAPH.JUSTIFY, None):
-            erros_local.append(f"⚠️ O parágrafo deve ser justificado → \"{texto}\"")
+            erros.add("⚠️ Um ou mais parágrafos não estão justificados.")
 
-        if not erros_local:
-            erros.append("✅ Parágrafo formatado corretamente.")
-        else:
-            erros.extend(erros_local)
+    # --------------------------------------------
+    # 6. Retorno final
+    # --------------------------------------------
+    if not erros:
+        return ["✅ Nenhum erro encontrado na formatação pós-resumo."]
 
-    return erros if erros else ["✅ Nenhum problema de formatação encontrado."]
+    return list(erros)
 
 
 def verificar_margens(doc):
@@ -1298,10 +1506,13 @@ def formatar():
         pass
 
     formatar_capa(doc)
+    formatar_paragrafos_abnt(doc)
     formatar_resumo(doc)
     formatar_palavras_chave(doc)
     formatar_abstract(doc) 
-    formatar_keywords(doc)  
+    formatar_keywords(doc) 
+    formatar_titulos_numerados(doc) 
+    formatar_referencias(doc)
     aplicar_formatacao(doc, fonte)
 
     saida = tempfile.NamedTemporaryFile(delete=False, suffix=".docx").name
