@@ -504,6 +504,8 @@ def formatar_capa(doc):
         p = doc.paragraphs[target_idx]
         p.text = texto.strip()
         p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        p.paragraph_format.right_indent = Pt(0)
+
 
         for run in p.runs:
             run.font.size = Pt(12)
@@ -709,14 +711,12 @@ def classificar_texto(texto, titulo_identificado):
     # ============================================================
     return "paragrafo", titulo_identificado
 
+
 def formatar_resumo(doc):
     """
-    Formata o bloco de RESUMO e retorna mensagens indicando
-    se a formatação está ABNT ou se há erros.
-
-    Regras verificadas:
-    - Título "RESUMO": maiúsculo, negrito, centralizado, fonte 12
-    - Texto do resumo: logo abaixo, fonte 12, alinhado justificado
+    Formata o bloco de RESUMO conforme ABNT:
+    - Título: RESUMO, centralizado, negrito, fonte 12
+    - Texto: justificado, sem recuo, espaçamento 1,5, fonte 12
     """
 
     mensagens = []
@@ -726,51 +726,116 @@ def formatar_resumo(doc):
         if not original:
             continue
 
-        # -----------------------------------------------------------
-        # Detecta o parágrafo que contém RESUMO
-        # -----------------------------------------------------------
+        # Detecta o parágrafo com "RESUMO"
         if original.lower().startswith("resumo"):
 
-            # ---------------------------------
-            # 1) Conteúdo na mesma linha (ex: "RESUMO: texto...")
-            # ---------------------------------
+            # Conteúdo na mesma linha
             conteudo_mesma_linha = ""
             if ":" in original:
                 partes = original.split(":", 1)
                 conteudo_mesma_linha = partes[1].strip()
 
-            # ============================================================
-            # FORMATAÇÃO DO TÍTULO "RESUMO"
-            # ============================================================
+            # --- FORMATAÇÃO DO TÍTULO ---
             p.text = ""
             run = p.add_run("RESUMO")
             run.bold = True
             run.font.size = Pt(12)
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            p.paragraph_format.right_indent = Pt(0)
+            p.paragraph_format.left_indent = Pt(0)
 
-            # Validação do título
-            erros_titulo = []
 
-            if run.text != "RESUMO":
-                erros_titulo.append("Título não está exatamente como 'RESUMO'.")
+            # ===========================
+            # 1) Se havia texto após "RESUMO:"
+            # ===========================
+            if conteudo_mesma_linha:
+                if i + 1 < len(doc.paragraphs):
+                    novo_para = doc.paragraphs[i + 1].insert_paragraph_before(conteudo_mesma_linha)
+                else:
+                    novo_para = doc.add_paragraph(conteudo_mesma_linha)
 
-            if not run.bold:
-                erros_titulo.append("Título 'RESUMO' deve estar em negrito.")
+                novo_para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+                novo_para.paragraph_format.first_line_indent = None
+                novo_para.paragraph_format.left_indent = Pt(0)
+                novo_para.paragraph_format.right_indent = Pt(0)
+                novo_para.paragraph_format.line_spacing = 1.5
 
-            if p.alignment != WD_ALIGN_PARAGRAPH.CENTER:
-                erros_titulo.append("Título 'RESUMO' deve estar centralizado.")
+                for r in novo_para.runs:
+                    r.font.size = Pt(12)
 
-            if not run.font.size or run.font.size.pt != 12:
-                erros_titulo.append("Título 'RESUMO' deve ter fonte tamanho 12.")
+                mensagens.append("✅ Resumo formatado corretamente (conteúdo na mesma linha).")
+                return mensagens
 
-            if erros_titulo:
-                mensagens.append("❌ Erros no título RESUMO: " + " | ".join(erros_titulo))
+            # ===========================
+            # 2) Resumo na linha seguinte
+            # ===========================
+            if i + 1 < len(doc.paragraphs) and doc.paragraphs[i+1].text.strip():
+                texto_para = doc.paragraphs[i+1]
+
+                texto_para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+                texto_para.paragraph_format.first_line_indent = None
+                texto_para.paragraph_format.left_indent = None
+                texto_para.paragraph_format.right_indent = Pt(0)
+                texto_para.paragraph_format.line_spacing = 1.5
+
+                for r in texto_para.runs:
+                    r.font.size = Pt(12)
+
+                mensagens.append("✅ Resumo formatado corretamente (linha seguinte).")
+                return mensagens
+
+            # ===========================
+            # 3) Caso não haja conteúdo
+            # ===========================
+            if i + 1 < len(doc.paragraphs):
+                if not doc.paragraphs[i + 1].text.strip():
+                    novo_para = doc.paragraphs[i + 1]
+                else:
+                    novo_para = doc.paragraphs[i + 1].insert_paragraph_before("")
             else:
-                mensagens.append("✅ Título RESUMO formatado corretamente.")
+                novo_para = doc.add_paragraph("")
 
-            # ============================================================
-            # 2) Se havia conteúdo depois do ":" → inserir abaixo
-            # ============================================================
+            novo_para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+            novo_para.paragraph_format.first_line_indent = None
+            novo_para.paragraph_format.left_indent = None
+            novo_para.paragraph_format.right_indent = Pt(0)
+            novo_para.paragraph_format.line_spacing = 1.5
+
+            mensagens.append("⚠️ Título RESUMO encontrado, mas o texto estava vazio — criado parágrafo para preenchimento.")
+            return mensagens
+
+    mensagens.append("⚠️ Nenhum bloco de RESUMO encontrado.")
+    return mensagens
+
+def formatar_abstract(doc):
+
+    for i, p in enumerate(doc.paragraphs):
+        original = (p.text or "").strip()
+        if not original:
+            continue
+
+        # Detecta ABSTRACT
+        if original.lower().startswith("abstract"):
+
+            conteudo_mesma_linha = ""
+            if ":" in original:
+                partes = original.split(":", 1)
+                conteudo_mesma_linha = partes[1].strip()
+
+            # --- TÍTULO "ABSTRACT" ---
+            p.text = ""
+            run = p.add_run("ABSTRACT")
+            run.bold = True
+            run.font.size = Pt(12)
+
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            p.paragraph_format.left_indent = Cm(0)
+            p.paragraph_format.first_line_indent = Cm(0)
+            p.paragraph_format.right_indent = Pt(0)
+
+            # ============================
+            # 1) Texto na mesma linha
+            # ============================
             if conteudo_mesma_linha:
                 if i + 1 < len(doc.paragraphs):
                     doc.paragraphs[i + 1].insert_paragraph_before(conteudo_mesma_linha)
@@ -779,53 +844,36 @@ def formatar_resumo(doc):
                     texto_para = doc.add_paragraph(conteudo_mesma_linha)
 
                 texto_para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+                texto_para.paragraph_format.left_indent = None
+                texto_para.paragraph_format.first_line_indent = None
+                texto_para.paragraph_format.right_indent = Pt(0)
+                texto_para.paragraph_format.line_spacing = 1.5
 
-                # validação do texto
-                erros_texto = []
                 for r in texto_para.runs:
-                    if not r.font.size or r.font.size.pt != 12:
-                        erros_texto.append("Texto do resumo deve ter fonte 12.")
-                        break
+                    r.font.size = Pt(12)
 
-                if texto_para.alignment != WD_ALIGN_PARAGRAPH.JUSTIFY:
-                    erros_texto.append("Texto do resumo deve estar justificado.")
+                return
 
-                if erros_texto:
-                    mensagens.append("❌ Erros no texto do resumo: " + " | ".join(erros_texto))
-                else:
-                    mensagens.append("✅ Texto do resumo formatado corretamente.")
-
-                return mensagens
-
-            # ============================================================
-            # 3) Resumo dividido em linha seguinte
-            # ============================================================
+            # ============================
+            # 2) Conteúdo na linha seguinte
+            # ============================
             if i + 1 < len(doc.paragraphs) and doc.paragraphs[i + 1].text.strip():
                 texto_para = doc.paragraphs[i + 1]
+
                 texto_para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+                texto_para.paragraph_format.left_indent = None
+                texto_para.paragraph_format.first_line_indent = None
+                texto_para.paragraph_format.right_indent = Pt(0)
+                texto_para.paragraph_format.line_spacing = 1.5
 
-                # padroniza tamanho da fonte
-                for run2 in texto_para.runs:
-                    run2.font.size = Pt(12)
+                for r in texto_para.runs:
+                    r.font.size = Pt(12)
 
-                # validação
-                erros_texto = []
-                if texto_para.alignment != WD_ALIGN_PARAGRAPH.JUSTIFY:
-                    erros_texto.append("Texto do resumo deve estar justificado.")
+                return
 
-                if any((r.font.size and r.font.size.pt != 12) for r in texto_para.runs):
-                    erros_texto.append("Texto do resumo deve ter fonte tamanho 12.")
-
-                if erros_texto:
-                    mensagens.append("❌ Erros no texto do resumo: " + " | ".join(erros_texto))
-                else:
-                    mensagens.append("✅ Texto do resumo formatado corretamente.")
-
-                return mensagens
-
-            # ============================================================
-            # 4) Caso não exista texto do resumo → cria um parágrafo
-            # ============================================================
+            # ============================
+            # 3) Sem conteúdo → cria vazio
+            # ============================
             if i + 1 < len(doc.paragraphs):
                 if not doc.paragraphs[i + 1].text.strip():
                     texto_para = doc.paragraphs[i + 1]
@@ -835,102 +883,14 @@ def formatar_resumo(doc):
                 texto_para = doc.add_paragraph("")
 
             texto_para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-
-            mensagens.append("⚠️ O resumo estava vazio — criado parágrafo para preenchimento.")
-
-            return mensagens
-
-    # caso nenhum resumo seja encontrado
-    mensagens.append("⚠️ Nenhum bloco de RESUMO encontrado no documento.")
-    return mensagens
-
-def formatar_abstract(doc):
-    """
-    Formata o bloco de ABSTRACT:
-    - ABSTRACT em uppercase, centralizado e negrito
-    - Texto do abstract logo abaixo, justificado
-    - Mesma lógica usada em formatar_resumo
-    """
-    for i, p in enumerate(doc.paragraphs):
-        original = (p.text or "").strip()
-        if not original:
-            continue
-
-        # Detecta "abstract" em qualquer forma
-        if original.lower().startswith("abstract"):
-            conteudo_mesma_linha = ""
-            if ":" in original:
-                partes = original.split(":", 1)
-                conteudo_mesma_linha = partes[1].strip()
-
-            # -------------------------------
-            # Conteúdo na mesma linha
-            # -------------------------------
-            if conteudo_mesma_linha:
-                p.text = ""
-                run = p.add_run("ABSTRACT")
-                run.bold = True
-                p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-
-                if i + 1 < len(doc.paragraphs):
-                    doc.paragraphs[i + 1].insert_paragraph_before(conteudo_mesma_linha)
-                    inserted = doc.paragraphs[i + 1]
-                    inserted.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-                else:
-                    newp = doc.add_paragraph(conteudo_mesma_linha)
-                    newp.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-
-                return
-
-            # -------------------------------
-            # Conteúdo no próximo parágrafo
-            # -------------------------------
-            if i + 1 < len(doc.paragraphs) and doc.paragraphs[i + 1].text.strip():
-                p.text = ""
-                run = p.add_run("ABSTRACT")
-                run.bold = True
-                p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-
-                next_para = doc.paragraphs[i + 1]
-                next_para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-
-                # Ajusta tamanhos
-                for run in p.runs + next_para.runs:
-                    try:
-                        run.font.size = Pt(12)
-                    except:
-                        pass
-
-                return
-
-            # -------------------------------
-            # Título sem conteúdo -> cria bloco vazio
-            # -------------------------------
-            p.text = ""
-            run = p.add_run("ABSTRACT")
-            run.bold = True
-            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-
-            if i + 1 < len(doc.paragraphs):
-                if not doc.paragraphs[i + 1].text.strip():
-                    doc.paragraphs[i + 1].alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-                else:
-                    newp = doc.paragraphs[i + 1].insert_paragraph_before("")
-                    newp.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-            else:
-                newp = doc.add_paragraph("")
-                newp.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+            texto_para.paragraph_format.left_indent = None
+            texto_para.paragraph_format.first_line_indent = None
+            texto_para.paragraph_format.right_indent = Pt(0)
+            texto_para.paragraph_format.line_spacing = 1.5
 
             return
 
 def formatar_palavras_chave(doc):
-    """
-    Identifica e formata 'Palavras-chave:' no documento:
-    - deixa o título em negrito e capitalizado
-    - garante os dois-pontos
-    - formata as palavras-chave separando por ';' e finalizando com '.'
-    """
-
     padrao = re.compile(
         r"^(palavras[\s\-]*chaves?|palavraschave)(:)?\s*(.*)$",
         re.IGNORECASE
@@ -946,59 +906,48 @@ def formatar_palavras_chave(doc):
             titulo = "Palavras-chave:"
             conteudo = m.group(3).strip()
 
-            # SE O CONTEÚDO ESTIVER NA MESMA LINHA
+            # Remove qualquer recuo
+            p.paragraph_format.left_indent = None
+            p.paragraph_format.first_line_indent = None
+            p.paragraph_format.right_indent = Pt(0)
+
+
             if conteudo:
-                # normaliza as palavras-chave
                 palavras = re.split(r"[;,.\n]\s*", conteudo)
                 palavras = [w.strip() for w in palavras if w.strip()]
+                conteudo_formatado = "; ".join(palavras) + "."
 
-                if palavras:
-                    conteudo_formatado = "; ".join(palavras) + "."
-                else:
-                    conteudo_formatado = ""
-
-                # reescreve o parágrafo:
                 p.text = ""
                 run_titulo = p.add_run(titulo)
                 run_titulo.bold = True
                 p.add_run(" ")
+                p.add_run(conteudo_formatado)
 
-                run_conteudo = p.add_run(conteudo_formatado)
                 p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-                return
+            else:
+                p.text = ""
+                run_titulo = p.add_run(titulo)
+                run_titulo.bold = True
+                p.alignment = WD_ALIGN_PARAGRAPH.LEFT
 
-            # SE O CONTEÚDO ESTIVER NO PARÁGRAFO SEGUINTE
-            p.text = ""
-            run_titulo = p.add_run(titulo)
-            run_titulo.bold = True
-            p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+                if i + 1 < len(doc.paragraphs):
+                    proximo = doc.paragraphs[i + 1]
 
-            if i + 1 < len(doc.paragraphs):
-                proximo = doc.paragraphs[i + 1]
-                cont = proximo.text.strip()
+                    # Remove recuo do próximo parágrafo também
+                    proximo.paragraph_format.left_indent = None
+                    proximo.paragraph_format.first_line_indent = None
 
-                palavras = re.split(r"[;,.\n]\s*", cont)
-                palavras = [w.strip() for w in palavras if w.strip()]
+                    palavras = re.split(r"[;,.\n]\s*", proximo.text.strip())
+                    palavras = [w.strip() for w in palavras if w.strip()]
+                    proximo.text = "; ".join(palavras) + "."
+                    proximo.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
 
-                if palavras:
-                    cont_formatado = "; ".join(palavras) + "."
-                else:
-                    cont_formatado = ""
-
-                proximo.text = cont_formatado
-                proximo.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+            # ➜ espaço 1,5 linha antes do ABSTRACT
+            p.paragraph_format.space_after = Pt(18)  # ~1,5 linha
 
             return
 
 def formatar_keywords(doc):
-    
-    """
-    Identifica e formata 'Keywords:' no documento:
-    - deixa o título em negrito e capitalizado
-    - garante os dois-pontos
-    - formata as palavras separando por ';' e finalizando com '.'
-    """
-
     padrao = re.compile(
         r"^(keywords?)(:)?\s*(.*)$",
         re.IGNORECASE
@@ -1014,50 +963,41 @@ def formatar_keywords(doc):
             titulo = "Keywords:"
             conteudo = m.group(3).strip()
 
-            # --------------------------------------
-            #   CONTEÚDO NA MESMA LINHA
-            # --------------------------------------
+            # Remove qualquer recuo
+            p.paragraph_format.left_indent = None
+            p.paragraph_format.first_line_indent = None
+            p.paragraph_format.right_indent = Pt(0)
+
+
             if conteudo:
                 palavras = re.split(r"[;,.\n]\s*", conteudo)
                 palavras = [w.strip() for w in palavras if w.strip()]
-
-                if palavras:
-                    conteudo_formatado = "; ".join(palavras) + "."
-                else:
-                    conteudo_formatado = ""
+                conteudo_formatado = "; ".join(palavras) + "."
 
                 p.text = ""
-                run_titulo = p.add_run(titulo)
-                run_titulo.bold = True
+                p.add_run(titulo).bold = True
                 p.add_run(" ")
-
-                run_conteudo = p.add_run(conteudo_formatado)
+                p.add_run(conteudo_formatado)
                 p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-                return
+            else:
+                p.text = ""
+                p.add_run(titulo).bold = True
+                p.alignment = WD_ALIGN_PARAGRAPH.LEFT
 
-            # --------------------------------------
-            #   CONTEÚDO NO PARÁGRAFO SEGUINTE
-            # --------------------------------------
-            p.text = ""
-            run_titulo = p.add_run(titulo)
-            run_titulo.bold = True
-            p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+                if i + 1 < len(doc.paragraphs):
+                    proximo = doc.paragraphs[i + 1]
 
-            if i + 1 < len(doc.paragraphs):
-                proximo = doc.paragraphs[i + 1]
-                cont = proximo.text.strip()
+                    # Remove recuo do próximo parágrafo também
+                    proximo.paragraph_format.left_indent = None
+                    proximo.paragraph_format.first_line_indent = None
 
-                palavras = re.split(r"[;,.\n]\s*", cont)
-                palavras = [w.strip() for w in palavras if w.strip()]
+                    palavras = re.split(r"[;,.\n]\s*", proximo.text.strip())
+                    palavras = [w.strip() for w in palavras if w.strip()]
+                    proximo.text = "; ".join(palavras) + "."
+                    proximo.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
 
-                if palavras:
-                    cont_formatado = "; ".join(palavras) + "."
-                else:
-                    cont_formatado = ""
-
-                proximo.text = cont_formatado
-                proximo.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-
+            # ➜ espaço 1,5 linha
+            p.paragraph_format.space_after = Pt(18)
             return
 
 def formatar_titulos_numerados(doc):
@@ -1145,9 +1085,11 @@ def formatar_paragrafos_abnt(doc):
             continue
 
         p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-        p.paragraph_format.first_line_indent = Pt(1.25 * 10)
+        p.paragraph_format.first_line_indent = Pt(1.25 * 28.35)
         p.paragraph_format.space_after = Pt(6)
         p.paragraph_format.line_spacing = 1.5
+        p.paragraph_format.right_indent = Pt(0)
+
 
         for run in p.runs:
             run.font.size = Pt(12)
@@ -1262,7 +1204,7 @@ def formatar_referencias(doc):
             p.alignment = WD_ALIGN_PARAGRAPH.LEFT
             p.paragraph_format.line_spacing = 1.0
             p.paragraph_format.space_after = Pt(6)
-
+            p.paragraph_format.right_indent = Pt(0)
             p.paragraph_format.first_line_indent = Pt(0)
             p.paragraph_format.left_indent = Pt(1.25 * 28.35)
 
@@ -1377,6 +1319,13 @@ def aplicar_formatacao(doc, fonte_principal):
         print(f"[DEBUG] Formatação aplicada para: {tipo}")
 
     # Fim da função
+
+def aplicar_margens_abnt(doc):
+    s = doc.sections[0]
+    s.top_margin = Cm(3)
+    s.bottom_margin = Cm(2)
+    s.left_margin = Cm(3)
+    s.right_margin = Cm(2)
 
   
 # -------- VERIFICAR FORMATAÇÃO --------
@@ -1513,6 +1462,7 @@ def formatar():
     formatar_keywords(doc) 
     formatar_titulos_numerados(doc) 
     formatar_referencias(doc)
+    aplicar_margens_abnt(doc)
     aplicar_formatacao(doc, fonte)
 
     saida = tempfile.NamedTemporaryFile(delete=False, suffix=".docx").name
