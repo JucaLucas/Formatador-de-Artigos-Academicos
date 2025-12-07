@@ -517,6 +517,7 @@ def formatar_capa(doc):
             run = p.add_run(original.upper())
             run.font.size = Pt(14)
             run.bold = True
+            
 
     start_clean = first_idx + len(capa_ordem)
     for idx in range(start_clean, limite):
@@ -1085,7 +1086,7 @@ def formatar_paragrafos_abnt(doc):
             continue
 
         p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-        p.paragraph_format.first_line_indent = Pt(1.25 * 28.35)
+        p.paragraph_format.first_line_indent = Cm(1.25)
         p.paragraph_format.space_after = Pt(6)
         p.paragraph_format.line_spacing = 1.5
         p.paragraph_format.right_indent = Pt(0)
@@ -1316,107 +1317,88 @@ def aplicar_margens_abnt(doc):
 
   
 # -------- VERIFICAR FORMATAÇÃO --------
-def verificar_formatacao(doc):
-    from docx.enum.text import WD_ALIGN_PARAGRAPH
-    import re
-
+def verificar_formatacao(document):
     erros = set()
 
-    # --------------------------------------------
-    # 1. Padrão de detecção de TÍTULOS NUMERADOS
-    # --------------------------------------------
-    padrao_titulo = r"""
-        ^\s*
-        (\d+(\.\d+)*)       # 1 , 1.1 , 1.1.1 etc
-        \s*\.?\s*
-        [A-Za-zÀ-ÿ]         # letra após número
-    """
-    eh_titulo_numerado = lambda t: re.match(padrao_titulo, t.strip(), re.VERBOSE) is not None
-
-    # --------------------------------------------
-    # 2. Flags
-    # --------------------------------------------
-    dentro_corpo = False  # ativa somente após encontrar "RESUMO"
-
-    # --------------------------------------------
-    # 3. Percorre todo o documento
-    # --------------------------------------------
-    for p in doc.paragraphs:
+    for p in document.paragraphs:
         texto = p.text.strip()
+
+        # Ignora parágrafos vazios
         if not texto:
             continue
 
-        # Detecta INÍCIO do corpo (após RESUMO)
-        if re.match(r"^\s*resumo\b", texto, re.IGNORECASE):
-            dentro_corpo = True
+        fmt = p.paragraph_format
+
+        # --------------------------------------------
+        # DETECTA SE É PARÁGRAFO DE CORPO (ABNT)
+        # --------------------------------------------
+        eh_corpo = (
+            fmt.first_line_indent is not None and
+            round(fmt.first_line_indent.pt) >= 35 and   # ~1,25 cm
+            fmt.line_spacing is not None and
+            round(fmt.line_spacing, 1) >= 1.5
+        )
+
+        # Se NÃO for corpo de texto, ignora
+        if not eh_corpo:
             continue
 
-        # Somente após o RESUMO
-        if not dentro_corpo:
-            continue
+        # --------------------------------------------
+        # TAMANHO DA FONTE (12)
+        # --------------------------------------------
+        tamanhos = {
+            run.font.size.pt
+            for run in p.runs
+            if run.font.size is not None
+        }
+
+        if tamanhos and any(t != 12 for t in tamanhos):
+            erros.add("❌ Um ou mais parágrafos do corpo estão com fonte diferente de 12.")
 
         # --------------------------------------------
-        # 4. Sessão detectada (ex: 1 Introdução)
+        # ALINHAMENTO JUSTIFICADO
         # --------------------------------------------
-        if eh_titulo_numerado(texto):
+        if p.alignment is not None and p.alignment != WD_ALIGN_PARAGRAPH.JUSTIFY:
+            erros.add("⚠️ Um ou mais parágrafos do corpo não estão justificados.")
 
-            # Separa numeração e conteúdo
-            match = re.match(r"^(\d+(?:\.\d+)*)(?:\.)?\s*(.*)$", texto)
-            if not match:
-                continue
-
-            numeracao = match.group(1)
-            titulo_texto = match.group(2)
-
-            # Nível do título (1, 2, 3 etc)
-            nivel = numeracao.count(".") + 1
-
-            # — Tamanho da fonte
-            tamanhos = {run.font.size.pt for run in p.runs if run.font.size}
-            if any(t != 12 for t in tamanhos):
-                erros.add(f"❌ A sessão '{texto}' deve estar no tamanho 12.")
-
-            # — Alinhamento correto
-            if p.alignment not in (WD_ALIGN_PARAGRAPH.LEFT, None):
-                erros.add(f"⚠️ A sessão '{texto}' deve estar alinhada à esquerda.")
-
-            # — Regras de maiúscula
-            if nivel == 1 and titulo_texto != titulo_texto.upper():
-                erros.add(f"⚠️ Sessão de nível 1 '{texto}' deveria estar em MAIÚSCULO.")
-
-            if nivel > 1 and titulo_texto == titulo_texto.upper():
-                erros.add(f"⚠️ Sessões de nível 2+ não devem ser totalmente maiúsculas: '{texto}'.")
-
-            continue  # evita cair na análise de parágrafo
-
-        # --------------------------------------------
-        # 5. Parágrafos normais (somente após RESUMO)
-        # --------------------------------------------
-
-        # Verificar fonte
-        tamanhos = {run.font.size.pt for run in p.runs if run.font.size}
-        if any(t != 12 for t in tamanhos):
-            erros.add("❌ Um parágrafo está no tamanho incorreto (deve ser 12).")
-
-        # Verificar alinhamento — mas ignorar None
-        if p.alignment not in (WD_ALIGN_PARAGRAPH.JUSTIFY, None):
-            erros.add("⚠️ Um ou mais parágrafos não estão justificados.")
-
-    # --------------------------------------------
-    # 6. Retorno final
-    # --------------------------------------------
     if not erros:
-        return ["✅ Nenhum erro encontrado na formatação pós-resumo."]
+        return ["✅ Formatação dos parágrafos do corpo está correta conforme ABNT."]
 
-    return list(erros)
+    return sorted(erros)
 
 
 def verificar_margens(doc):
-    padrao = [3, 2, 3, 2]
+    erros = []
+
+    # Padrão ABNT (cm): superior, inferior, esquerda, direita
+    padrao = {
+        "superior": 3,
+        "inferior": 2,
+        "esquerda": 3,
+        "direita": 2
+    }
+
     s = doc.sections[0]
-    margens = [round(s.top_margin.cm), round(s.bottom_margin.cm),
-               round(s.left_margin.cm), round(s.right_margin.cm)]
-    return margens == padrao
+
+    margens = {
+        "superior": round(s.top_margin.cm),
+        "inferior": round(s.bottom_margin.cm),
+        "esquerda": round(s.left_margin.cm),
+        "direita": round(s.right_margin.cm)
+    }
+
+    for lado, valor in margens.items():
+        esperado = padrao[lado]
+        if valor != esperado:
+            erros.append(
+                f"❌ Margem {lado} incorreta: {valor} cm (deveria ser {esperado} cm)."
+            )
+
+    if not erros:
+        return ["✅ Margens estão corretas conforme ABNT."]
+
+    return erros
+
 
 
 @app.route("/formatar", methods=["POST"])
@@ -1468,7 +1450,7 @@ def verificar():
     doc = Document(caminho)
 
     return {
-        "margens_corretas": verificar_margens(doc),
+        "margens": verificar_margens(doc),
         "formatacao": verificar_formatacao(doc)
     }
 
