@@ -1222,20 +1222,7 @@ from docx.oxml.ns import qn
 import re
 
 def aplicar_formatacao(doc, fonte_principal):
-    """
-    Aplica formatação visual (temporária/colorida) aos elementos da CAPA
-    antes do resumo, apenas para facilitar depuração.
-
-    Itens identificados:
-        - instituição  (verde)
-        - autor        (azul)
-        - orientador   (magenta)
-        - curso        (laranja)
-        - título       (verde escuro)
-        - subtítulo    (roxo)
-        - cidade       (ciano)
-        - ano          (cinza)
-    """
+   
 
     # ==============================================
     # 1) Garantir fonte padrão
