@@ -1387,6 +1387,23 @@ def verificar_formatacao(document):
 
     return sorted(erros)
 
+def fonte_preta(doc):
+    preto = RGBColor(0, 0, 0)
+
+    # Texto fora de tabelas
+    for paragraph in doc.paragraphs:
+        for run in paragraph.runs:
+            if run.text and run.text.strip():
+                run.font.color.rgb = preto
+
+    # Texto dentro de tabelas
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                for paragraph in cell.paragraphs:
+                    for run in paragraph.runs:
+                        if run.text and run.text.strip():
+                            run.font.color.rgb = preto
 
 def verificar_margens(doc):
     erros = []
@@ -1452,8 +1469,10 @@ def formatar():
     formatar_keywords(doc) 
     formatar_titulos_numerados(doc) 
     formatar_referencias(doc)
+    fonte_preta(doc)
     aplicar_margens_abnt(doc)
     aplicar_formatacao(doc, fonte)
+
 
     saida = tempfile.NamedTemporaryFile(delete=False, suffix=".docx").name
     doc.save(saida)
