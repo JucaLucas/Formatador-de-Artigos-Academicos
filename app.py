@@ -1006,13 +1006,29 @@ def formatar_titulos_numerados(doc):
     from docx.shared import Pt
     from docx.enum.text import WD_ALIGN_PARAGRAPH
 
-    padrao = r"""
+    padrao_numerado = r"""
         ^\s*
-        (\d+(\.\d+)*)   # 1 , 1.1 , 1.1.1 etc
+        (\d+(\.\d+)*)   
         \s*\.?\s*
-        [A-Za-zÀ-ÿ]     # precisa começar com letra depois do número
+        [A-Za-zÀ-ÿ]
     """
-    eh_titulo = lambda t: re.match(padrao, t.strip(), re.VERBOSE) is not None
+
+    titulos_populares = {
+        "introducao", "introdução",
+        "metodologia",
+        "materiais e metodos", "materiais e métodos",
+        "resultados",
+        "discussao", "discussão",
+        "resultados e discussao", "resultados e discussão",
+        "conclusao", "conclusão",
+        "consideracoes finais", "considerações finais",
+    }
+
+    def eh_titulo_numerado(t):
+        return re.match(padrao_numerado, t.strip(), re.VERBOSE) is not None
+
+    def normalizar(t):
+        return re.sub(r"\s+", " ", t.lower().strip())
 
     depois_do_resumo = False
 
@@ -1029,9 +1045,10 @@ def formatar_titulos_numerados(doc):
         if not depois_do_resumo:
             continue
 
-        if eh_titulo(texto_original):
+        eh_titulo = False  # ✅ flag correta
 
-            print(f"[DEBUG] Título numerado detectado: {texto_original}")
+        # 1️⃣ TÍTULO NUMERADO
+        if eh_titulo_numerado(texto_original):
 
             match = re.match(r"^(\d+(?:\.\d+)*)(?:\.)?\s*(.*)$", texto_original)
             if not match:
@@ -1039,26 +1056,31 @@ def formatar_titulos_numerados(doc):
 
             numeracao = match.group(1)
             titulo_texto = match.group(2)
-
             nivel = numeracao.count(".") + 1
 
             if nivel == 1:
                 titulo_formatado = titulo_texto.upper()
             else:
-                if len(titulo_texto) > 0:
-                    titulo_formatado = titulo_texto[0].upper() + titulo_texto[1:].lower()
-                else:
-                    titulo_formatado = titulo_texto
+                titulo_formatado = (
+                    titulo_texto[0].upper() + titulo_texto[1:].lower()
+                    if titulo_texto else titulo_texto
+                )
 
-            novo_texto = f"{numeracao} {titulo_formatado}"
+            p.text = f"{numeracao} {titulo_formatado}"
+            eh_titulo = True
 
-            p.text = novo_texto
+        # 2️⃣ TÍTULO POPULAR SEM NÚMERO
+        else:
+            if normalizar(texto_original) in titulos_populares:
+                p.text = texto_original.upper()
+                eh_titulo = True
 
+        # ✅ FORMATAÇÃO SOMENTE SE FOR TÍTULO
+        if eh_titulo:
             p.alignment = WD_ALIGN_PARAGRAPH.LEFT
             for run in p.runs:
                 run.font.bold = True
                 run.font.size = Pt(12)
-                # cor removida
 
 def formatar_paragrafos_abnt(doc):
 
@@ -1213,7 +1235,6 @@ def formatar_referencias(doc):
                 run.font.size = Pt(12)
                 run.font.bold = False
                 # cor removida
-
 
 
 # -------- APLICAR FORMATAÇÃO --------
